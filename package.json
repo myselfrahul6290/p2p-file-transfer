@@ -1,23 +1,30 @@
 {
-  "name": "anydesk-p2p-file-share",
+  "name": "anydesk-p2p-file-share-react",
   "version": "1.0.0",
-  "description": "Zero-installation P2P File Sharing web application inspired by AnyDesk",
+  "description": "AnyDesk-style P2P File Sharing app in React",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "vite",
+    "build": "vite build"
   },
   "keywords": [
+    "react",
     "webrtc",
     "p2p",
     "file-sharing",
-    "websocket",
-    "anydesk"
+    "websocket"
   ],
   "author": "Antigravity",
   "license": "MIT",
   "dependencies": {
     "express": "^4.19.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.2.11"
   }
 }
