@@ -1,0 +1,23 @@
+{
+  "name": "anydesk-p2p-file-share",
+  "version": "1.0.0",
+  "description": "Zero-installation P2P File Sharing web application inspired by AnyDesk",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "webrtc",
+    "p2p",
+    "file-sharing",
+    "websocket",
+    "anydesk"
+  ],
+  "author": "Antigravity",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.17.0"
+  }
+}
