@@ -10,8 +10,28 @@ const rtcConfig = {
 };
 
 export function useWebRTC() {
+  const getOrCreateDeviceDeskId = () => {
+    try {
+      const stored = sessionStorage.getItem('airlink_client_id') || localStorage.getItem('airlink_client_id');
+      if (stored && /^\d{3}-\d{3}$/.test(stored)) {
+        sessionStorage.setItem('airlink_client_id', stored);
+        return stored;
+      }
+      const seg1 = Math.floor(100 + Math.random() * 900);
+      const seg2 = Math.floor(100 + Math.random() * 900);
+      const newId = `${seg1}-${seg2}`;
+      sessionStorage.setItem('airlink_client_id', newId);
+      localStorage.setItem('airlink_client_id', newId);
+      return newId;
+    } catch (e) {
+      const seg1 = Math.floor(100 + Math.random() * 900);
+      const seg2 = Math.floor(100 + Math.random() * 900);
+      return `${seg1}-${seg2}`;
+    }
+  };
+
   // --- STATE ---
-  const [localId, setLocalId] = useState(null);
+  const [localId, setLocalId] = useState(getOrCreateDeviceDeskId);
   const [serverConnected, setServerConnected] = useState(false);
   const [activePeerId, setActivePeerId] = useState(null);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
@@ -21,6 +41,8 @@ export function useWebRTC() {
   const [chatMessages, setChatMessages] = useState([]);
   const [activeTransfers, setActiveTransfers] = useState({});
   const [toasts, setToasts] = useState([]);
+  const [lanUrl, setLanUrl] = useState(null);
+  const [initialConnectId, setInitialConnectId] = useState(null);
 
   // --- REFS FOR WEBRTC STATE ---
   const wsRef = useRef(null);
@@ -29,10 +51,24 @@ export function useWebRTC() {
   const connectionDirectionRef = useRef(null); // 'sender' or 'receiver'
   const activePeerIdRef = useRef(null);
   const activeReceivingFileRef = useRef(null);
-  
-  // Keep track of values for websocket callbacks to avoid closures stale state issues
-  const localPasswordRef = useRef('');
-  const localPasswordHashRef = useRef('');
+  const autoConnectTargetRef = useRef(null);
+  const localIdRef = useRef(getOrCreateDeviceDeskId());
+
+  // --- PARSE URL PARAMS ONCE (QR SCAN AUTO-LINK) ---
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const targetParam = params.get('connect') || params.get('desk');
+      if (targetParam) {
+        const raw = targetParam.trim().replace(/\D/g, '');
+        const formatted = raw.length === 6 ? `${raw.slice(0, 3)}-${raw.slice(3, 6)}` : targetParam.trim();
+        setInitialConnectId(formatted);
+        autoConnectTargetRef.current = formatted;
+      }
+    } catch (e) {
+      console.error('Failed reading URL params', e);
+    }
+  }, []);
 
   // --- TOAST ALERTS HELPER ---
   const showToast = useCallback((title, message, type = 'info') => {
@@ -48,38 +84,6 @@ export function useWebRTC() {
   const removeToast = useCallback((id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
-
-  // --- ZERO-KNOWLEDGE CRYPTO PIN HASHING ---
-  const computeZKHash = useCallback(async (password, salt) => {
-    try {
-      const msgBuffer = new TextEncoder().encode(`${password}:${salt}`);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-      return hashHex;
-    } catch (e) {
-      console.error('Crypto error, fallback to btoa:', e);
-      return btoa(`${password}:${salt}`);
-    }
-  }, []);
-
-  // --- REACTIONARY SIGNALING COMMANDS ---
-  const updateLocalPasswordOnServer = useCallback(() => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'update-password',
-        passwordHash: localPasswordHashRef.current
-      }));
-    }
-  }, []);
-
-  const registerLocalPIN = useCallback(async (pin) => {
-    localPasswordRef.current = pin;
-    if (localId) {
-      localPasswordHashRef.current = await computeZKHash(pin, localId);
-      updateLocalPasswordOnServer();
-    }
-  }, [localId, computeZKHash, updateLocalPasswordOnServer]);
 
   // --- SYSTEM CHAT LOGS ---
   const appendSystemMessage = useCallback((text) => {
@@ -515,14 +519,14 @@ export function useWebRTC() {
   }, []);
 
   // --- CONNECT TO REMOTE HANDSHAKE ---
-  const connectToRemote = useCallback(async (targetId, pin) => {
-    if (!serverConnected) {
+  const connectToRemote = useCallback(async (targetId) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       showToast('Offline Mode', 'Not connected to matchmaking server.', 'error');
       return;
     }
 
-    if (!targetId || !pin) {
-      showToast('Missing Fields', 'Please complete both fields.', 'error');
+    if (!targetId) {
+      showToast('Missing Field', 'Please enter Remote Desk Address.', 'error');
       return;
     }
 
@@ -530,14 +534,11 @@ export function useWebRTC() {
     connectionDirectionRef.current = 'sender';
     activePeerIdRef.current = targetId;
 
-    const hashInput = await computeZKHash(pin, targetId);
-    
     wsRef.current.send(JSON.stringify({
       type: 'initiate-connect',
-      targetId: targetId,
-      passwordHash: hashInput
+      targetId: targetId
     }));
-  }, [serverConnected, computeZKHash, showToast]);
+  }, [showToast]);
 
   // --- HELPER: BYTES FORMATTER ---
   function formatBytes(bytes, decimals = 2) {
@@ -549,6 +550,16 @@ export function useWebRTC() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   }
 
+  // Stable callbacks container to avoid re-triggering the WebSocket effect
+  const callbacksRef = useRef({});
+  callbacksRef.current = {
+    connectToRemote,
+    handleSignalingSignal,
+    initiateWebRTCLink,
+    disconnectSession,
+    showToast
+  };
+
   // --- SETUP WEBSOCKET CONNECTION ---
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -559,24 +570,40 @@ export function useWebRTC() {
     console.log(`React Client connecting WebSocket to ${wsUrl}`);
     let ws = null;
     let keepAlive = null;
+    let reconnectTimer = null;
+    let isUnmounted = false;
 
     function connect() {
+      if (isUnmounted) return;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+
       ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (isUnmounted) {
+          ws.close();
+          return;
+        }
         setServerConnected(true);
-        showToast('Connected to Signaling', 'Ready to register Desk ID.', 'info');
+        callbacksRef.current.showToast?.('Connected to Signaling', 'Ready to register Desk ID.', 'info');
         
-        // Auto register on connect
+        // Auto register on connect with sticky/saved ID if available
+        const currentSavedId = localIdRef.current || sessionStorage.getItem('airlink_client_id');
         ws.send(JSON.stringify({
           type: 'register-peer',
-          peerId: null,
-          passwordHash: localPasswordHashRef.current || 'pending'
+          peerId: currentSavedId || null
         }));
 
+        if (keepAlive) clearInterval(keepAlive);
         keepAlive = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
+          if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'ping' }));
           }
         }, 25000);
@@ -585,52 +612,76 @@ export function useWebRTC() {
       ws.onmessage = async (event) => {
         try {
           const data = JSON.parse(event.data);
+          const cb = callbacksRef.current;
           
           switch (data.type) {
             case 'registered':
               if (data.success) {
                 setLocalId(data.peerId);
-                // recalculate hash
-                localPasswordHashRef.current = await computeZKHash(localPasswordRef.current || '1234', data.peerId);
-                ws.send(JSON.stringify({
-                  type: 'update-password',
-                  passwordHash: localPasswordHashRef.current
-                }));
+                localIdRef.current = data.peerId;
+                try {
+                  sessionStorage.setItem('airlink_client_id', data.peerId);
+                  localStorage.setItem('airlink_client_id', data.peerId);
+                } catch (e) {}
+
+                if (data.lanIp && data.port) {
+                  setLanUrl(`http://${data.lanIp}:${data.port}`);
+                }
+
+                // Check for QR scan auto-connect intent
+                const pendingTarget = autoConnectTargetRef.current;
+                if (pendingTarget && pendingTarget !== data.peerId) {
+                  autoConnectTargetRef.current = null;
+                  cb.showToast?.('QR Scan Detected', `Auto-linking to Desk ${pendingTarget}...`, 'info');
+                  
+                  // Clean URL bar query params without page reload
+                  try {
+                    const currentUrl = new URL(window.location.href);
+                    currentUrl.searchParams.delete('connect');
+                    currentUrl.searchParams.delete('desk');
+                    window.history.replaceState({}, document.title, currentUrl.pathname + (currentUrl.search ? currentUrl.search : ''));
+                  } catch (e) {}
+
+                  // Connect to remote target
+                  setTimeout(() => {
+                    cb.connectToRemote?.(pendingTarget);
+                  }, 400);
+                }
               }
               break;
 
             case 'connect-failed':
               setIsConnecting(false);
-              showToast('Connection Refused', data.reason, 'error');
-              disconnectSession();
+              cb.showToast?.('Connection Refused', data.reason, 'error');
+              cb.disconnectSession?.();
               break;
 
             case 'connect-approved':
               connectionDirectionRef.current = 'sender';
               activePeerIdRef.current = data.targetId;
-              showToast('Verification Approved', 'Linking P2P lines...', 'info');
-              initiateWebRTCLink(data.targetId);
+              cb.showToast?.('Connection Approved', 'Linking P2P lines...', 'info');
+              cb.initiateWebRTCLink?.(data.targetId);
               break;
 
             case 'peer-linking':
               connectionDirectionRef.current = 'receiver';
               activePeerIdRef.current = data.senderId;
-              showToast('Incoming Link Handshake', `Matching session credentials...`, 'info');
+              cb.showToast?.('Incoming Desk Link', `Peer ${data.senderId} connecting...`, 'info');
               break;
 
             case 'signal-relay':
-              handleSignalingSignal(data.senderId, data.payload);
+              cb.handleSignalingSignal?.(data.senderId, data.payload);
               break;
 
             case 'peer-offline':
-              showToast('Handshake Failed', `Remote Desk went offline.`, 'error');
-              disconnectSession();
+              cb.showToast?.('Handshake Failed', `Remote Desk went offline.`, 'error');
+              cb.disconnectSession?.();
               break;
 
             case 'peer-disconnected':
               if (activePeerIdRef.current === data.peerId) {
-                showToast('Desk Offline', 'Direct session connection severed by remote.', 'error');
-                disconnectSession();
+                cb.showToast?.('Desk Offline', 'Direct session connection severed by remote.', 'error');
+                cb.disconnectSession?.();
               }
               break;
               
@@ -642,23 +693,44 @@ export function useWebRTC() {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setServerConnected(false);
-        setLocalId(null);
         if (keepAlive) clearInterval(keepAlive);
-        setTimeout(connect, 5000); // retry reconnect
+        if (!isUnmounted) {
+          if (event && event.code === 1008) {
+            console.warn('WebSocket throttled by server. Backing off reconnect.');
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(connect, 15000); // 15s backoff
+            return;
+          }
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(connect, 5000); // retry reconnect
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.warn('WebSocket encountered error:', err);
       };
     }
 
     connect();
 
     return () => {
-      if (ws) {
-        ws.close();
-      }
+      isUnmounted = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       if (keepAlive) clearInterval(keepAlive);
+      if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        try {
+          ws.close();
+        } catch (e) {}
+      }
+      wsRef.current = null;
     };
-  }, [computeZKHash, handleSignalingSignal, initiateWebRTCLink, disconnectSession, showToast]);
+  }, []);
 
   return {
     localId,
@@ -670,8 +742,9 @@ export function useWebRTC() {
     chatMessages,
     activeTransfers,
     toasts,
+    lanUrl,
+    initialConnectId,
     
-    registerLocalPIN,
     connectToRemote,
     sendChatMessage,
     streamFile,

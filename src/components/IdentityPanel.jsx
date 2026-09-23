@@ -1,162 +1,152 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import QRCode from 'qrcode';
 
-export default function IdentityPanel({ localId, registerLocalPIN, showToast }) {
-  const [pin, setPin] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [copied, setCopied] = useState(false);
+export default function IdentityPanel({ localId, lanUrl, showToast }) {
+  const [copiedId, setCopiedId] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState(() => {
+    try {
+      return sessionStorage.getItem('airlink_qr_data') || '';
+    } catch (e) {
+      return '';
+    }
+  });
+  const prevUrlRef = useRef('');
 
-  // Generate a random 4-digit PIN once on startup
+  const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  // On local machines, use the LAN URL so phones on same Wi-Fi can scan, otherwise use origin
+  const baseOrigin = isLocal ? (lanUrl || window.location.origin) : (typeof window !== 'undefined' ? window.location.origin : '');
+  const connectUrl = (localId && localId !== '--- - ---' && baseOrigin) ? `${baseOrigin}/?connect=${localId}` : '';
+
   useEffect(() => {
-    const randomPIN = Math.floor(1000 + Math.random() * 9000).toString();
-    setPin(randomPIN);
-    registerLocalPIN(randomPIN);
-  }, [registerLocalPIN]);
+    if (!connectUrl) return;
 
-  const handlePINChange = (e) => {
-    const val = e.target.value.trim();
-    setPin(val);
-    registerLocalPIN(val);
-  };
+    if (prevUrlRef.current === connectUrl) {
+      return;
+    }
+    prevUrlRef.current = connectUrl;
+
+    let active = true;
+    QRCode.toDataURL(connectUrl, {
+      width: 190,
+      margin: 1.5,
+      color: {
+        dark: '#0f172a',
+        light: '#ffffff'
+      }
+    })
+      .then((url) => {
+        if (active) {
+          setQrDataUrl(url);
+          try {
+            sessionStorage.setItem('airlink_qr_data', url);
+          } catch (e) {}
+        }
+      })
+      .catch((err) => console.error('Failed to generate QR code', err));
+
+    return () => {
+      active = false;
+    };
+  }, [connectUrl]);
 
   const handleCopyId = () => {
     if (!localId || localId === '--- - ---') return;
     navigator.clipboard.writeText(localId).then(() => {
-      setCopied(true);
+      setCopiedId(true);
       showToast('Desk ID Copied', 'Address saved in your clipboard.', 'success');
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setCopiedId(false), 2000);
+    });
+  };
+
+  const handleCopyLink = () => {
+    if (!connectUrl) return;
+    navigator.clipboard.writeText(connectUrl).then(() => {
+      setCopiedLink(true);
+      showToast('Pairing Link Copied', 'Direct connection link copied to clipboard.', 'success');
+      setTimeout(() => setCopiedLink(false), 2000);
     });
   };
 
   return (
-    <section className="panel glass-panel" id="identity-panel" aria-labelledby="identity-title">
+    <section className="panel" id="identity-panel" aria-labelledby="identity-title">
       <div className="panel-header">
-        <div className="panel-icon-wrap violet-glow">
-          <svg 
-            xmlns="http://www.w3.org/2000/svg" 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            stroke="currentColor" 
-            strokeWidth="2.5" 
-            strokeLinecap="round" 
-            strokeLinejoin="round"
-          >
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
-        </div>
-        <h2 id="identity-title">This Desk ID</h2>
+        <h2 id="identity-title">Your Device</h2>
+        <span className="panel-badge">This Desk</span>
       </div>
 
       <div className="panel-body">
-        <p className="section-desc">Share these credentials to allow another device to securely initiate a direct P2P link with your browser.</p>
+        {/* Large Clean Desk ID */}
+        <div className="desk-id-hero">
+          <div className="desk-id-number" id="local-desk-id">
+            {localId || '--- - ---'}
+          </div>
+          <span className="desk-id-subtext">Share this 6-digit code or scan the QR</span>
+        </div>
 
-        {/* Desk ID Display */}
-        <div className="desk-id-display">
-          <label className="input-label">Your Unique Desk Address</label>
-          <div class="id-screen-container">
-            <div className="id-screen-value" id="local-desk-id">{localId || '--- - ---'}</div>
-            <button 
-              className="icon-btn copy-btn" 
-              onClick={handleCopyId}
-              title="Copy Desk ID" 
-              aria-label="Copy Desk ID"
-            >
-              {!copied ? (
-                <svg 
-                  xmlns="http://www.w3.org/2000/svg" 
-                  viewBox="0 0 24 24" 
-                  fill="none" 
-                  stroke="currentColor" 
-                  strokeWidth="2" 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  className="copy-icon"
-                >
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-              ) : (
-                <svg 
-                  xmlns="http://www.w3.org/2000/svg" 
-                  viewBox="0 0 24 24" 
-                  fill="none" 
-                  stroke="currentColor" 
-                  strokeWidth="2" 
-                  strokeLinecap="round" 
-                  className="check-icon"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
-            </button>
+        {/* Crisp QR Code Card */}
+        <div className="qr-container">
+          <div className="qr-card">
+            {qrDataUrl ? (
+              <img src={qrDataUrl} alt={`QR Code for Desk ID ${localId}`} className="qr-image" />
+            ) : (
+              <div className="qr-placeholder">
+                <div className="qr-spinner"></div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Password Settings */}
-        <div className="password-setup-block">
-          <div className="label-row">
-            <label htmlFor="local-desk-password" className="input-label">Desk Session PIN</label>
-            <span className="sec-badge" title="Zero-Knowledge Auth">Zero-Knowledge</span>
-          </div>
-          <div className="input-group-premium">
-            <div className="input-icon">
-              <svg 
-                xmlns="http://www.w3.org/2000/svg" 
-                viewBox="0 0 24 24" 
-                fill="none" 
-                stroke="currentColor" 
-                strokeWidth="2" 
-                strokeLinecap="round" 
-                strokeLinejoin="round"
-              >
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
-            </div>
-            <input 
-              type={showPassword ? 'text' : 'password'} 
-              id="local-desk-password" 
-              value={pin}
-              onChange={handlePINChange}
-              placeholder="Set Session PIN" 
-              maxLength={12} 
-              autoComplete="off" 
-            />
-            <button 
-              className="icon-btn toggle-password" 
-              onClick={() => setShowPassword(!showPassword)}
-              aria-label="Toggle PIN Visibility"
-            >
-              {!showPassword ? (
-                <svg 
-                  xmlns="http://www.w3.org/2000/svg" 
-                  viewBox="0 0 24 24" 
-                  fill="none" 
-                  stroke="currentColor" 
-                  strokeWidth="2" 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  className="eye-open-icon"
-                >
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
+        {/* Action Pills */}
+        <div className="action-pills-row">
+          <button 
+            type="button"
+            className="action-pill-btn" 
+            onClick={handleCopyId}
+            title="Copy Desk ID"
+          >
+            {!copiedId ? (
+              <>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                 </svg>
-              ) : (
-                <svg 
-                  xmlns="http://www.w3.org/2000/svg" 
-                  viewBox="0 0 24 24" 
-                  fill="none" 
-                  stroke="currentColor" 
-                  strokeWidth="2" 
-                  className="eye-closed-icon"
-                >
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                  <line x1="1" y1="1" x2="23" y2="23" />
+                <span>Copy ID</span>
+              </>
+            ) : (
+              <>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <polyline points="20 6 9 17 4 12" />
                 </svg>
-              )}
-            </button>
-          </div>
-          <p className="input-tip">PIN auto-updates on server dynamically. Remote peers need this exact PIN to link.</p>
+                <span>Copied</span>
+              </>
+            )}
+          </button>
+
+          <button 
+            type="button" 
+            className="action-pill-btn" 
+            onClick={handleCopyLink}
+            disabled={!connectUrl}
+            title="Copy Direct Link"
+          >
+            {!copiedLink ? (
+              <>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                </svg>
+                <span>Copy Link</span>
+              </>
+            ) : (
+              <>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>Copied</span>
+              </>
+            )}
+          </button>
         </div>
       </div>
     </section>

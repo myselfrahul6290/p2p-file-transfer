@@ -17,7 +17,7 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 // Live In-Memory State: Map of Desk IDs to Peer Info
-// Key: peerId (string, e.g. "482-910") -> Value: { socket, passwordHash, socketId }
+// Key: peerId (string, e.g. "482-910") -> Value: { socket, socketId }
 const peers = new Map();
 
 // Map to associate WebSocket connections to Desk IDs
@@ -39,32 +39,76 @@ function generateDeskId() {
   return String(Date.now()).slice(-6).replace(/(\d{3})(\d{3})/, '$1-$2');
 }
 
+// Helper to normalize IP addresses (collapse IPv6 localhost to IPv4)
+function normalizeIp(ip) {
+  if (!ip) return '127.0.0.1';
+  if (ip === '::1' || ip === '::ffff:127.0.0.1' || ip === '127.0.0.1') return '127.0.0.1';
+  return ip.replace(/^::ffff:/, '');
+}
+
+// Track sockets per IP to prevent socket storms / zombie tabs
+const ipToSockets = new Map();
+const MAX_SOCKETS_PER_IP = 6;
+
 // Generate unique ID for sockets
 let socketIdCounter = 0;
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   const socketId = `ws_${++socketIdCounter}`;
-  console.log(`[Socket connected] ID: ${socketId}`);
+  const rawIp = req.socket.remoteAddress || 'unknown';
+  const ip = normalizeIp(rawIp);
+  const port = req.socket.remotePort;
+  const origin = req.headers.origin || 'No-Origin';
+  const ua = req.headers['user-agent'] || 'No-UA';
+
+  // IP throttling: track active sockets for this IP
+  if (!ipToSockets.has(ip)) {
+    ipToSockets.set(ip, new Set());
+  }
+  const socketsForIp = ipToSockets.get(ip);
+
+  // If IP exceeds socket limit (e.g. zombie tabs storm), reject excess immediately
+  if (socketsForIp.size >= MAX_SOCKETS_PER_IP) {
+    console.warn(`[Socket Rejected] IP ${ip} reached limit (${MAX_SOCKETS_PER_IP}). Rejecting ${socketId}.`);
+    ws.close(1008, 'Max connections per IP exceeded');
+    return;
+  }
+
+  socketsForIp.add(ws);
+  console.log(`[Socket connected] ID: ${socketId} | ${ip}:${port} | Active for IP: ${socketsForIp.size}`);
 
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
       
       switch (data.type) {
-        // Step 1: Register new peer with optional custom ID & password hash
+        // Step 1: Register peer with persistent device ID
         case 'register-peer': {
           let peerId = data.peerId;
-          const passwordHash = data.passwordHash;
+          const localIPs = getLocalIPs();
 
-          // If no peer ID is supplied or if already in use, generate a new one
-          if (!peerId || peers.has(peerId)) {
+          // Prevent a single socket from re-generating multiple IDs
+          const alreadyAssignedId = socketToPeerId.get(ws);
+          if (alreadyAssignedId) {
+            peerId = alreadyAssignedId;
+          } else if (!peerId) {
             peerId = generateDeskId();
+          }
+
+          // If an existing socket was assigned to this peerId, close old socket cleanly
+          if (peers.has(peerId)) {
+            const existing = peers.get(peerId);
+            if (existing.socket !== ws) {
+              try {
+                socketToPeerId.delete(existing.socket);
+                existing.socket.close(1000, 'Replaced by newer connection');
+              } catch (e) {}
+            }
           }
 
           // Register in state maps
           peers.set(peerId, {
             socket: ws,
-            passwordHash: passwordHash,
             socketId: socketId
           });
           socketToPeerId.set(ws, peerId);
@@ -75,29 +119,22 @@ wss.on('connection', (ws) => {
           ws.send(JSON.stringify({
             type: 'registered',
             success: true,
-            peerId: peerId
+            peerId: peerId,
+            lanIp: localIPs.length > 0 ? localIPs[0] : null,
+            port: PORT
           }));
           break;
         }
 
-        // Live Password Update
-        case 'update-password': {
-          const peerId = socketToPeerId.get(ws);
-          if (peerId && peers.has(peerId)) {
-            const peerInfo = peers.get(peerId);
-            peerInfo.passwordHash = data.passwordHash;
-            peers.set(peerId, peerInfo);
-            console.log(`[Credentials Updated] Desk ID: ${peerId}`);
-            ws.send(JSON.stringify({ type: 'password-updated', success: true }));
-          }
-          break;
-        }
-
-        // Step 2: Validate credentials and initiate WebRTC handshakes
+        // Step 2: Validate target and initiate WebRTC handshakes
         case 'initiate-connect': {
           const senderId = socketToPeerId.get(ws);
-          const targetId = data.targetId;
-          const providedPasswordHash = data.passwordHash;
+          let targetId = data.targetId;
+
+          // Normalize if 6 consecutive digits without hyphen were passed
+          if (typeof targetId === 'string' && /^\d{6}$/.test(targetId.trim())) {
+            targetId = `${targetId.slice(0, 3)}-${targetId.slice(3, 6)}`;
+          }
 
           console.log(`[Link Request] Sender ${senderId} -> Receiver ${targetId}`);
 
@@ -127,16 +164,6 @@ wss.on('connection', (ws) => {
           }
 
           const targetPeer = peers.get(targetId);
-
-          // Verify Password Hash (Zero-Knowledge verification)
-          if (targetPeer.passwordHash !== providedPasswordHash) {
-            console.log(`[Link Refused] Invalid password PIN for ${targetId}`);
-            ws.send(JSON.stringify({
-              type: 'connect-failed',
-              reason: 'Verification failed. Incorrect Remote PIN.'
-            }));
-            return;
-          }
 
           // Approved! Notify the initiator to prepare and generate Offer
           console.log(`[Link Approved] Handshake authorized: ${senderId} <-> ${targetId}`);
@@ -194,23 +221,34 @@ wss.on('connection', (ws) => {
 
   // Purge records on disconnect
   ws.on('close', () => {
+    // Untrack from IP map
+    const socketsForIp = ipToSockets.get(ip);
+    if (socketsForIp) {
+      socketsForIp.delete(ws);
+      if (socketsForIp.size === 0) {
+        ipToSockets.delete(ip);
+      }
+    }
+
     const peerId = socketToPeerId.get(ws);
     console.log(`[Socket Closed] ID: ${socketId}, Associated Desk ID: ${peerId || 'None'}`);
 
     if (peerId) {
-      peers.delete(peerId);
       socketToPeerId.delete(ws);
+      // Only delete from peers map if this socket is still the registered socket for peerId
+      if (peers.get(peerId)?.socket === ws) {
+        peers.delete(peerId);
 
-      // Proactively notify any active peers trying to link with this ID
-      // (Clients can also monitor via WebRTC Connection State transitions)
-      wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify({
-            type: 'peer-disconnected',
-            peerId: peerId
-          }));
-        }
-      });
+        // Proactively notify any active peers trying to link with this ID
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({
+              type: 'peer-disconnected',
+              peerId: peerId
+            }));
+          }
+        });
+      }
     }
   });
 });

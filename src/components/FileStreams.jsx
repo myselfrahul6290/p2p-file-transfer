@@ -58,7 +58,7 @@ export default function FileStreams({ streamFile, activeTransfers, setActiveTran
 
   return (
     <div className="file-sharing-grid">
-      {/* Dropzone Area */}
+      {/* Minimal Dropzone */}
       <div 
         className={`dropzone-area ${dragOver ? 'dragover' : ''}`} 
         id="dropzone"
@@ -76,101 +76,80 @@ export default function FileStreams({ streamFile, activeTransfers, setActiveTran
           style={{ display: 'none' }}
         />
         <div className="dropzone-content">
-          <div className="glow-sphere"></div>
           <div className="dropzone-icon-wrap">
-            <svg 
-              xmlns="http://www.w3.org/2000/svg" 
-              viewBox="0 0 24 24" 
-              fill="none" 
-              stroke="currentColor" 
-              strokeWidth="1.8" 
-              strokeLinecap="round" 
-              strokeLinejoin="round" 
-              className={`upload-icon-anim ${dragOver ? 'pulsing' : ''}`}
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
+              <path d="M12 12v9" />
+              <path d="m16 16-4-4-4 4" />
             </svg>
           </div>
-          <h3>Drag & Drop Files Here</h3>
-          <p class="dropzone-sub">Photos, videos, folders or documents directly</p>
-          <span className="btn-secondary" onClick={(e) => { e.stopPropagation(); fileInputRef.current.click(); }}>
-            Browse Local Files
-          </span>
+          <h3>Drop files here</h3>
+          <p className="dropzone-sub">or <span className="browse-link">browse from device</span></p>
         </div>
       </div>
 
-      {/* Transfer History Panel */}
+      {/* Transfer List Panel */}
       <div className="transfer-history-card">
         <div className="card-header-slim">
-          <h4>Active Direct Data Pipelines</h4>
+          <h4>Transfers</h4>
           {transfersList.length > 0 && (
-            <button className="btn-text-clear" onClick={clearHistory}>Clear History</button>
+            <button type="button" className="btn-text-clear" onClick={clearHistory}>Clear</button>
           )}
         </div>
         
         <div className="history-list" id="history-container">
           {transfersList.length === 0 ? (
             <div className="empty-history" id="empty-history-text">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="16" x2="12" y2="12" />
-                <line x1="12" y1="8" x2="12.01" y2="8" />
-              </svg>
-              <p>No active file transactions in this session.</p>
+              <p>No active transfers yet</p>
             </div>
           ) : (
             transfersList.map((tx) => (
               <div key={tx.id} className="transfer-item">
                 <div className="item-meta">
                   <div className={`file-type-icon ${getFileClass(tx.name)}`}>
-                    {tx.name.split('.').pop().slice(0, 3)}
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
                   </div>
                   <div className="item-details">
                     <div className="item-name" title={tx.name}>{tx.name}</div>
                     <div className="item-stats">
                       {tx.status === 'complete' ? (
-                        <span style={{ color: 'var(--color-success)', fontWeight: '600' }}>Complete</span>
+                        <span className="status-complete">Completed • {formatBytes(tx.size)}</span>
                       ) : tx.status === 'error' ? (
-                        <span style={{ color: 'var(--color-error)', fontWeight: '600' }}>Error</span>
+                        <span className="status-error">Failed</span>
                       ) : (
                         <span>
-                          {formatBytes(tx.bytesTransferred)} of {formatBytes(tx.size)} • <span style={{ color: 'var(--accent-cyan-solid)', fontWeight: '500' }}>{tx.speedText}</span>
+                          {formatBytes(tx.bytesTransferred)} / {formatBytes(tx.size)} • {tx.speedText}
                         </span>
                       )}
                     </div>
                   </div>
-                  <div className="progress-percent" style={{ color: tx.status === 'complete' ? 'var(--color-success)' : '' }}>
-                    {tx.percent}%
+
+                  <div className="item-end-action">
+                    {tx.status === 'complete' && tx.type === 'download' && (
+                      <a href={tx.downloadUrl} download={tx.fileName} className="btn-save-file">
+                        Save
+                      </a>
+                    )}
+                    {tx.status === 'complete' && tx.type === 'upload' && (
+                      <span className="check-badge">✓</span>
+                    )}
+                    {tx.status === 'active' && (
+                      <span className="percent-text">{tx.percent}%</span>
+                    )}
                   </div>
                 </div>
                 
-                <div className="progress-bar-wrap">
-                  <div 
-                    className="progress-bar-fill" 
-                    style={{ 
-                      width: `${tx.percent}%`,
-                      background: tx.status === 'error' ? 'var(--color-error)' : ''
-                    }}
-                  />
-                </div>
-                
-                <div className="item-actions">
-                  <span className="eta-label">
-                    {tx.status === 'complete' 
-                      ? 'Transferred Successfully' 
-                      : tx.status === 'error' 
-                      ? 'Pipeline broke.' 
-                      : 'Active transmission'}
-                  </span>
-                  
-                  {tx.status === 'complete' && tx.type === 'download' && (
-                    <a href={tx.downloadUrl} download={tx.fileName} className="btn-save-file">
-                      Save File
-                    </a>
-                  )}
-                </div>
+                {tx.status === 'active' && (
+                  <div className="progress-bar-wrap">
+                    <div 
+                      className="progress-bar-fill" 
+                      style={{ width: `${tx.percent}%` }}
+                    />
+                  </div>
+                )}
               </div>
             ))
           )}
