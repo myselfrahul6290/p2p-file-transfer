@@ -7,8 +7,26 @@ const os = require('os');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Serve static frontend files
-app.use(express.static(path.join(__dirname, 'dist')));
+// Serve static frontend files with optimal caching headers
+app.use(express.static(path.join(__dirname, 'dist'), {
+  maxAge: '1h',
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('index.html')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else if (filePath.includes(path.sep + 'assets' + path.sep)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  }
+}));
+
+// Fallback for SPA routing
+app.get('*', (req, res, next) => {
+  // If requesting a file with an extension that was not found, return 404
+  if (path.extname(req.path)) {
+    return next();
+  }
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
 
 // Create HTTP server
 const server = http.createServer(app);

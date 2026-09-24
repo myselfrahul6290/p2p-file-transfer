@@ -6,6 +6,8 @@ import ConnectionPanel from './components/ConnectionPanel';
 import TransferWorkspace from './components/TransferWorkspace';
 import ToastContainer from './components/ToastContainer';
 
+import SeoContentSection from './components/SeoContentSection';
+
 export default function App() {
   const {
     localId,
@@ -62,15 +64,27 @@ export default function App() {
         )}
       </main>
 
-      {/* Minimal Footer */}
+      {/* SEO Informational & FAQ Section (Shown on Landing Screen) */}
+      {!isWorkspaceOpen && <SeoContentSection />}
+
+      {/* Footer */}
       <footer className="app-footer">
-        <div className="footer-status-pill">
-          <span className="dot-indicator green"></span>
-          <span>End-to-End Encrypted</span>
+        <div className="footer-status-pills">
+          <div className="footer-status-pill">
+            <span className="dot-indicator green"></span>
+            <span>End-to-End Encrypted</span>
+          </div>
+          <span className="footer-divider">•</span>
+          <div className="footer-status-pill">
+            <span>Direct P2P (WebRTC)</span>
+          </div>
+          <span className="footer-divider">•</span>
+          <div className="footer-status-pill">
+            <span>Zero Cloud Storage</span>
+          </div>
         </div>
-        <span className="footer-divider">•</span>
-        <div className="footer-status-pill">
-          <span>Direct P2P (WebRTC)</span>
+        <div className="footer-credits">
+          <span>AirLink &bull; P2P File Sharing by <a href="https://iamrahulshaw.in/" target="_blank" rel="noopener noreferrer">Rahul Shaw</a></span>
         </div>
       </footer>
 
