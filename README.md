@@ -3,7 +3,7 @@
 > **Direct, Browser-to-Browser File Transfer via WebRTC**  
 > Live at: [https://p2p.iamrahulshaw.in/](https://p2p.iamrahulshaw.in/)
 
-AirLink is a high-performance, secure, serverless peer-to-peer (P2P) file sharing web application inspired by AnyDesk. It enables direct browser-to-browser transfers without cloud storage, file size limits, or intermediate tracking.
+AirLink is a high-performance, secure, serverless peer-to-peer (P2P) file sharing web application. It enables direct browser-to-browser transfers without cloud storage, file size limits, or intermediate tracking.
 
 ---
 
@@ -14,71 +14,16 @@ AirLink is a high-performance, secure, serverless peer-to-peer (P2P) file sharin
 - **No File Size Limits**: Files stream in chunked memory buffers, supporting gigabyte-sized files and folders.
 - **Fast Desk Connection**: Quick 6-digit Desk ID (e.g. `482-910`) or instant QR code scan.
 - **Bi-directional Encrypted Chat**: Send text messages and notes between connected devices during transfers.
-- **Offline / Local LAN Acceleration**: Automatic LAN IP detection transfers files over local Wi-Fi when devices share a network.
-- **Progress & Bandwidth Monitoring**: Real-time progress bars, transfer speeds, and latency measurements.
-
 ---
 
-## 🔍 SEO & Discoverability Architecture
-
-Optimized for top rankings on Google for keywords like **"secure peer-to-peer file sharing"**, **"browser file transfer"**, **"webrtc file transfer"**, and **"send large files direct"**:
-
-1. **Meta & Canonical Directives**:
-   - Keyword-targeted Title and Description tags
-   - Canonical URL pointing to `https://p2p.iamrahulshaw.in/`
-   - Explicit `robots` directives with image/snippet preview permissions
-2. **Schema.org Structured Data (JSON-LD)**:
-   - `WebApplication`: Defines software features, pricing ($0), operating systems, and developer credentials.
-   - `FAQPage`: Structured rich-snippet Q&A targeting high-volume search intents.
-3. **Crawlable Fallback Content**:
-   - Semantic HTML and fallback content inside `#root` and `<noscript>` ensure search engine crawlers index complete text even before executing JavaScript.
-4. **On-Page Semantic Rich Content**:
-   - "How Direct Browser File Transfer Works" 3-step workflow
-   - Core value propositions & security breakdown
-   - Interactive FAQ accordion matching the JSON-LD schema
-5. **Open Graph & Twitter Cards**:
-   - Complete Open Graph tags with custom high-resolution preview card (`/assets/og-image.png`).
-6. **Search Engine Discovery**:
-   - `robots.txt` allowing all search engine bots and pointing to the sitemap.
-   - `sitemap.xml` listing the canonical domain with priority metadata.
-
----
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: React 18, Vite, Vanilla CSS (Modern Dark Zinc Design System)
+- **Frontend**: React 18
 - **Signaling Server**: Node.js, Express, WebSocket (`ws`)
-- **P2P Transport**: WebRTC DataChannels (SCTP over DTLS/UDP)
-- **Deployment**: Node.js server serving production Vite bundle with optimized HTTP caching
+- **P2P Transport**: WebRTC DataChannels 
 
----
 
-## 📦 Getting Started
-
-### Prerequisites
-- Node.js (v18+ recommended)
-- npm
-
-### Installation & Run
-
-```bash
-# Clone the repository
-git clone https://github.com/myselfrahul6290/p2p-file-transfer.git
-cd p2p-file-transfer
-
-# Install dependencies
-npm install
-
-# Build production frontend
-npm run build
-
-# Start signaling and static server
-npm start
-```
-
-Visit `http://localhost:3000` in your web browser.
-
----
 
 ## 👨‍💻 Author
 
